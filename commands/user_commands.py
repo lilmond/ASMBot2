@@ -2,7 +2,7 @@ from components import database, custom_logger, custom_response
 from discord import app_commands
 from discord.ext import commands
 import discord
-
+import time
 
 logger = custom_logger.CustomLogger(source_file="USER_COMMANDS")
 
@@ -21,13 +21,54 @@ class UserCommands(commands.Cog):
     @app_commands.command(name="claim_daily", description="Claim your daily reward.")
     @app_commands.guild_only()
     async def claim_daily(self, interaction: discord.Interaction):
-        await interaction.response.send_message(f"**{__name__}.claim_daily** - working")
-    
+        users_db = database.Users()
+        user_data = users_db.get_user(discord_id=interaction.user.id)
+
+        last_daily = user_data.last_daily
+
+        if not user_data.last_daily:
+            last_daily = 0
+        
+        print(f"Last Daily: {last_daily}")
+
+        if (time.time() - last_daily) < 76800:
+            print("Already claimed")
+            return await custom_response.command_error(interaction, custom_message=f"You have recently claimed your daily reward. Please come back at <t:{int(last_daily + 76800)}:F>", ephemeral=False)
+        
+        print(f"Claiming")
+        user_data.user_points(action="add", currency="social_credits", value=100)
+        print(f"Added points")
+        user_data.set_last_daily(epoch=time.time())
+        print("Set last daily")
+
+        return await custom_response.command_succes(interaction, custom_message=f"You have successfully claimed your daily reward of 100 Social Credits!", ephemeral=False)
+
 
     @app_commands.command(name="leaderboard", description="Show who's the richest Social user globally.")
     @app_commands.guild_only()
-    async def leaderboard(self, interaction: discord.Interaction):
-        await interaction.response.send_message(f"**{__name__}.leaderboard** - working")
+    @app_commands.choices(stats=[
+        app_commands.Choice(name="Social Credits", value="social_credits"),
+        app_commands.Choice(name="Social Tokens", value="social_tokens"),
+        app_commands.Choice(name="Spent XRP", value="spent_xrp"),
+
+    ])
+    async def leaderboard(self, interaction: discord.Interaction, stats: str):
+        users_db = database.Users()
+        leaderboard = users_db.get_leaderboard(stats=stats)
+        leaderboard_name = ' '.join(x.capitalize() for x in stats.split('_'))
+
+        leaderboard_embed = discord.Embed()
+        leaderboard_embed.color = 0x5400e6
+        leaderboard_embed.title = f"{leaderboard_name} Leaderboard"
+        leaderboard_embed.description = ""
+
+        if not leaderboard:
+            leaderboard_embed.description = f"Wow! Current no one has enough {leaderboard_name} to be shown on the leaderboard."
+        else:
+            for user in leaderboard:
+                leaderboard_embed.description += f"<@{user.discord_id}> - {user.__getattribute__(stats)}\n"
+
+        await interaction.response.send_message(embed=leaderboard_embed)
 
 
     @app_commands.command(name="profile", description="Show yours or others Social profile.")
