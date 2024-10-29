@@ -1,7 +1,7 @@
 import sqlite3
+import os
 
-
-database = sqlite3.connect("database.db", check_same_thread=False)
+database = sqlite3.connect(f"{os.path.dirname(__file__)}/database.db", check_same_thread=False)
 
 
 def _initialize():
@@ -11,7 +11,8 @@ def _initialize():
         XRP_ADDRESS     TEXT,
         SOCIAL_CREDITS  INTEGER     NOT NULL,
         SOCIAL_TOKENS   INTEGER     NOT NULL,
-        SPENT_XRP       INTEGER     NOT NULL
+        SPENT_XRP       INTEGER     NOT NULL,
+        LAST_DAILY      INTEGER
     );''')
 
     database.execute('''CREATE TABLE IF NOT EXISTS "XAMAN_WALLETS" (
@@ -26,13 +27,14 @@ _initialize()
 
 
 class User(object):
-    def __init__(self, discord_id: int, twitter_id: int, xrp_address: str, social_credits: int, social_tokens: int, spent_xrp: int):
+    def __init__(self, discord_id: int, twitter_id: int, xrp_address: str, social_credits: int, social_tokens: int, spent_xrp: int, last_daily: int):
         self.discord_id = discord_id
         self.twitter_id = twitter_id
         self.xrp_address = xrp_address
         self.social_credits = social_credits
         self.social_tokens = social_tokens
         self.spent_xrp = spent_xrp
+        self.last_daily = last_daily
     
 
     def user_points(self, action: str, currency: str, value: int):
@@ -57,6 +59,11 @@ class User(object):
         database.execute(f'UPDATE USERS SET XRP_ADDRESS="{xrp_address}" WHERE DISCORD_ID={self.discord_id};')
         database.commit()
 
+    
+    def set_last_daily(self, epoch: float):
+        database.execute(f'UPDATE USERS SET LAST_DAILY={epoch} WHERE DISCORD_ID={self.discord_id};')
+        database.commit()
+
 
 class Users(object):
     def __init__(self):
@@ -74,9 +81,15 @@ class Users(object):
 
         if not fetched:
             self.add_user(discord_id=discord_id)
-            fetched = self.get_user(discord_id=discord_id)
+            return self.get_user(discord_id=discord_id)
 
         return User(*fetched)
+    
+    def get_leaderboard(self, stats: str):
+        if not stats in ["social_credits", "social_tokens", "spent_xrp"]:
+            return
+
+        return [self.get_user(user[0]) for user in database.execute(f'SELECT * FROM USERS WHERE {stats.upper()}>0 ORDER BY {stats.upper()} DESC LIMIT 10;').fetchall()]
 
 
 class UuidNotFound(Exception):
@@ -123,3 +136,4 @@ class XamanWallets(object):
         users_db = Users()
         user = users_db.get_user(discord_id=discord_id)
         user.set_xrp_address(xrp_address=xrp_address)
+
